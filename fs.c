@@ -5,7 +5,9 @@
 #include <fcntl.h> 
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 
 #include "fs.h"
 
@@ -31,16 +33,9 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
     return NULL;
   }
 
-  FILE *fp = fopen(fname, "r");
+  int fd = open(fname, O_RDWR, S_IRUSR | S_IWUSR);
 
-  if (fp == NULL) {
-    errno = ENOENT;
-    return NULL;
-  }
-
-  fseek(fp, 0, SEEK_END);
-  long fsize = ftell(fp);
-  fclose(fp);
+  off_t fsize = lseek(fd, 0, SEEK_END);
 
   long nblocks = fsize / blocksize;
 
@@ -49,9 +44,17 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
     return NULL;
   }
 
+  if (flock(fd, LOCK_EX) == -1) {
+    close(fd);
+    errno = EBUSY;
+    return NULL;
+  }
+
+  lseek(fd, 0, SEEK_SET);
+
   // ----- Superblock -----
 
-  struct superblock *sb = (struct superblock*) malloc(blocksize);
+  struct superblock *sb = (struct superblock*) malloc(sizeof(struct superblock));
 
   if (sb == NULL) {
     return NULL;
@@ -63,12 +66,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
   sb->freeblks = nblocks - 3;
   sb->root = ROOT_INODE_BLK;
   sb->freelist = FREE_LIST_BLK;
-  sb->fd = open(fname, O_RDWR);
-
-  if (flock(sb->fd, LOCK_EX) == -1) {
-    errno = EBUSY;
-    return NULL;
-  }
+  sb->fd = fd;
 
   if (fs_write_blk(sb, SUPERBLOCK_BLK, (void*) sb) == -1) 
     return NULL;
@@ -122,7 +120,44 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
 }
 
 struct superblock * fs_open(const char *fname) {
+  int fd = open(fname, O_RDWR, S_IRUSR | S_IWUSR);
 
+  if (fd == -1) {
+    return -1;
+  }
+
+  if (flock(fd, LOCK_EX) == -1) {
+    close(fd);
+    errno = EBUSY;
+    return NULL;
+  }
+
+  struct superblock* sb = (struct superblock*) malloc(sizeof(struct superblock));
+
+  if (sb == NULL) {
+    flock(fd, LOCK_UN);
+    close(fd);
+    return -1;
+  }
+
+  if (read(fd, (void*) sb, sizeof(struct superblock)) == -1) {
+    flock(fd, LOCK_UN);
+    close(fd);
+    free(sb);
+    return -1;
+  }
+
+  if (sb->magic != SUPERBLOCK_MAGIC) {
+    flock(fd, LOCK_UN);
+    close(fd);
+    free(sb);
+    errno = EBADF;
+    return -1;
+  }
+
+  sb->fd = fd;
+
+  return sb;
 }
 
 int fs_close(struct superblock *sb) {
