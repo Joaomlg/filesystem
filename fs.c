@@ -141,7 +141,7 @@ struct superblock * fs_open(const char *fname) {
   int fd = open(fname, O_RDWR, S_IRUSR | S_IWUSR);
 
   if (fd == -1) {
-    return -1;
+    return NULL;
   }
 
   if (flock(fd, LOCK_EX) == -1) {
@@ -155,14 +155,14 @@ struct superblock * fs_open(const char *fname) {
   if (sb == NULL) {
     flock(fd, LOCK_UN);
     close(fd);
-    return -1;
+    return NULL;
   }
 
   if (read(fd, (void*) sb, sizeof(struct superblock)) == -1) {
     flock(fd, LOCK_UN);
     close(fd);
     free(sb);
-    return -1;
+    return NULL;
   }
 
   if (sb->magic != SUPERBLOCK_MAGIC) {
@@ -170,7 +170,7 @@ struct superblock * fs_open(const char *fname) {
     close(fd);
     free(sb);
     errno = EBADF;
-    return -1;
+    return NULL;
   }
 
   sb->fd = fd;
@@ -235,7 +235,7 @@ int fs_put_block(struct superblock *sb, uint64_t block) {
   struct freepage* freepage = (struct freepage*) malloc(sb->blksz);
 
   if (freepage == NULL) 
-    return (uint64_t) -1;
+    return -1;
 
   freepage->count = 0;
   freepage->next = sb->freelist;
@@ -246,7 +246,7 @@ int fs_put_block(struct superblock *sb, uint64_t block) {
   if (fs_write_blk(sb, block, (void *) freepage) == -1 \
   || fs_write_blk(sb, SUPERBLOCK_BLK, (void *) sb) == -1) {
     free(freepage);
-    return (uint64_t) -1;
+    return -1;
   }
 
   free(freepage);
