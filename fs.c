@@ -27,6 +27,16 @@ int fs_write_blk(struct superblock* sb, uint64_t pos, void *data) {
   return 0;
 }
 
+int fs_read_blk(struct superblock* sb, uint64_t pos, void *buf) {
+  if (lseek(sb->fd, pos * sb->blksz, SEEK_SET) == -1) 
+    return -1;
+  
+  if (read(sb->fd, buf, sb->blksz) == -1) 
+    return -1;
+  
+  return 0;
+}
+
 struct superblock * fs_format(const char *fname, uint64_t blocksize) {
   if (blocksize < MIN_BLOCK_SIZE) {
     errno = EINVAL;
@@ -175,11 +185,65 @@ int fs_close(struct superblock *sb) {
 }
 
 uint64_t fs_get_block(struct superblock *sb) {
+  if (sb->magic != SUPERBLOCK_MAGIC) {
+    errno = EBADF;
+    return (uint64_t) -1;
+  }
 
+  if (sb->freeblks == 0) 
+    return 0;
+
+  struct freepage* freepage = (struct freepage*) malloc(sb->blksz);
+
+  if (freepage == NULL) 
+    return (uint64_t) -1;
+
+  if (fs_read_blk(sb, sb->freelist, (void *) freepage) == -1) {
+    free(freepage);
+    return (uint64_t) -1;
+  }
+
+  uint64_t block = sb->freelist;
+
+  sb->freeblks--;
+  sb->freelist = freepage->next;
+
+  if (fs_write_blk(sb, SUPERBLOCK_BLK, (void *) sb) == -1) {
+    free(freepage);
+    return (uint64_t) -1;
+  }
+
+  free(freepage);
+
+  return block;
 }
 
 int fs_put_block(struct superblock *sb, uint64_t block) {
+  if (sb->magic != SUPERBLOCK_MAGIC) {
+    errno = EBADF;
+    return -1;
+  }
 
+  struct freepage* freepage = (struct freepage*) malloc(sb->blksz);
+
+  if (freepage == NULL) 
+    return (uint64_t) -1;
+
+  freepage->count = 0;
+  freepage->next = sb->freelist;
+
+  sb->freelist = block;
+  sb->freeblks++;
+
+  if (fs_write_blk(sb, block, (void *) freepage) == -1 \
+  || fs_write_blk(sb, SUPERBLOCK_BLK, (void *) sb) == -1) {
+    free(freepage);
+    return (uint64_t) -1;
+  }
+
+  free(freepage);
+
+  return 0;
 }
 
 int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cnt) {
