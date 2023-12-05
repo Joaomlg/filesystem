@@ -17,6 +17,10 @@
 #define ROOT_INFO_BLK 2
 #define FREE_LIST_BLK 3
 
+/****************************************************************************
+ * auxiliar functions
+ ***************************************************************************/
+
 int fs_write_blk(struct superblock* sb, uint64_t pos, void *data) {
   if (lseek(sb->fd, pos * sb->blksz, SEEK_SET) == -1) 
     return -1;
@@ -36,6 +40,10 @@ int fs_read_blk(struct superblock* sb, uint64_t pos, void *buf) {
   
   return 0;
 }
+
+/****************************************************************************
+ * external functions
+ ***************************************************************************/
 
 struct superblock * fs_format(const char *fname, uint64_t blocksize) {
   if (blocksize < MIN_BLOCK_SIZE) {
