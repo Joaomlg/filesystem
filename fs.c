@@ -9,6 +9,7 @@
 
 #include "fs.h"
 
+#define SUPERBLOCK_MAGIC 0xdcc605f5
 #define SUPERBLOCK_BLK 0
 #define ROOT_INODE_BLK 1
 #define ROOT_INFO_BLK 2
@@ -56,7 +57,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
     return NULL;
   }
   
-  sb->magic = 0xdcc605f5;
+  sb->magic = SUPERBLOCK_MAGIC;
   sb->blksz = blocksize;
   sb->blks = nblocks;
   sb->freeblks = nblocks - 3;
@@ -125,7 +126,17 @@ struct superblock * fs_open(const char *fname) {
 }
 
 int fs_close(struct superblock *sb) {
+  if (sb->magic != SUPERBLOCK_MAGIC) {
+    errno = EBADF;
+    return -1;
+  }
 
+  flock(sb->fd, LOCK_UN);
+  close(sb->fd);
+  
+  free(sb);
+
+  return 0;
 }
 
 uint64_t fs_get_block(struct superblock *sb) {
