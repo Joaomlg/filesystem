@@ -36,44 +36,44 @@ struct superblock {
 
 struct inode {
 	uint64_t mode;
-	uint64_t parent;
 	/* if =mode does not contain IMCHILD, then =parent points to the
 	 * directory that contains this inode.  if =mode contains IMCHILD,
 	 * then =parent points to the first inode (i.e., the inode without
 	 * IMCHILD) for the entity represented by this inode. */
-	uint64_t meta;
+	uint64_t parent;
 	/* if =mode does not contain IMCHILD, then meta points to this inode's
 	 * metadata (struct iinfo).  if =mode contains IMCHILD, then meta
 	 * points to the previous inode for this inode's entity. */
-	uint64_t next;
+	uint64_t meta;
 	/* if this file's date block do not fit in this inode, =next points to
 	 * the next inode for this entity; otherwise =next should be zero. */
-	uint64_t links[];
+	uint64_t next;
 	/* if =mode contains IMDIR, then entries in =links point to inode's
 	 * for each entity in the directory.  otherwise, if =mode contains
 	 * IMREG, then entries in =links point to this file's data blocks. */
+	uint64_t links[];
 };
 
 struct nodeinfo {
-	uint64_t size;
 	/* for files (mode IMREG), =size should contain the size of the file in 
 	 * bytes.  for directories (mode IMDIR), =size should contain the
 	 * number of files in the directory. */
-	uint64_t reserved[7];
+	uint64_t size;
 	/* reserving some space to implement security and ownership in the
 	 * future. */
-	char name[];
+	uint64_t reserved[7];
 	/* remainder of block used to store this entity's name. */
+	char name[];
 };
 
 struct freepage {
-	uint64_t next;
 	/* link to next freepage; or zero if this is the last freepage */
+	uint64_t next;
 	uint64_t count;
-	uint64_t links[];
 	/* remainder of block used to store links to free blocks.  =count
 	 * counts the number of elements in links, stored from links[0] to
 	 * links[counts-1]. */
+	uint64_t links[];
 };
 
 #define MIN_BLOCK_SIZE 128
