@@ -2,6 +2,7 @@ test:
 	./grade.sh
 
 clean:
+	rm -f *.o
 	rm -f *.out
 	rm -f *.err
 	rm -f *.log
