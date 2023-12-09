@@ -1,4 +1,6 @@
 test:
+	mkdir -p bin
+	mkdir -p log
 	./grade.sh
 
 clean:
