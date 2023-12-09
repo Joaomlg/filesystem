@@ -1,0 +1,60 @@
+{
+  "tasks": [
+    {
+      "label": "gcc_build_fs",
+      "type": "cppbuild",
+      "command": "/usr/bin/gcc",
+      "args": [
+        "-g",
+        "-std=c99",
+        "-Wall",
+        "-c",
+        "${workspaceFolder}/fs.c"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "gcc_build_active_file",
+      "type": "cppbuild",
+      "command": "/usr/bin/gcc",
+      "args": [
+        "-g",
+        "-std=c99",
+        "-Wall",
+        "-I.",
+        "${file}",
+        "${workspaceFolder}/fs.o",
+        "-o",
+        "${workspaceFolder}/${fileBasenameNoExtension}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "default_build_task",
+      "dependsOn": [
+        "gcc_build_fs",
+        "gcc_build_active_file"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "make_clean",
+      "type": "shell",
+      "command": "make clean"
+    }
+  ],
+  "version": "2.0.0"
+}

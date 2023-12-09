@@ -1,7 +1,7 @@
 #!/bin/bash
 set -u
 
-i=4
+i=7
 
 gcc -g -std=c99 -Wall -c fs.c -o bin/fs.o &>> log/gcc.log
 gcc -g -std=c99 -Wall -I. tests/test$i.c bin/fs.o -o bin/test$i &>> log/gcc.log

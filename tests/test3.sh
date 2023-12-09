@@ -3,16 +3,17 @@ set -u
 
 i=3
 
-gcc -g -std=c99 -Wall -I. tests/test$i.c fs.o -o test$i &>> gcc.log
-if [ ! -x test$i ] ; then
+gcc -g -std=c99 -Wall -c fs.c -o bin/fs.o &>> log/gcc.log
+gcc -g -std=c99 -Wall -I. tests/test$i.c bin/fs.o -o bin/test$i &>> log/gcc.log
+if [ ! -x bin/test$i ] ; then
     echo "[$i] compilation error"
     exit 1 ;
 fi
 
-if ! ./test$i > test$i.out 2> test$i.err ; then
+if ! ./bin/test$i > log/test$i.out 2> log/test$i.err ; then
     echo "[$i] error"
     exit 1
 fi
 
-rm -f test$i test$i.out test$i.err
+rm -f bin/test$i log/test$i.out log/test$i.err
 exit 0
