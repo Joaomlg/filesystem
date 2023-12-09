@@ -58,6 +58,30 @@ int fs_is_absolute_path(const char *path) {
   return strncmp(path, ROOT_DIR_NAME, strlen(ROOT_DIR_NAME)) == 0;
 }
 
+char * fs_get_basedir(const char *path) {
+  int n = (int)(strrchr(path, DIR_DELIM_CHR) - path);
+
+  char *basedir = (char*) malloc((n + 2) * sizeof(char));
+  *basedir = '\0';
+
+  if (n == 0) {
+    strcat(basedir, "/");
+  } else {
+    strncat(basedir, path, n);
+  }
+
+  return basedir;
+}
+
+char * fs_get_basename(const char *path) {
+  char *c = strrchr(path, DIR_DELIM_CHR);
+
+  char *basename = (char*) malloc(strlen(c) * sizeof(char));
+  strcpy(basename, c+1);
+
+  return basename;
+}
+
 uint64_t fs_find_blk(struct superblock *sb, const char *name) {
   if (!fs_is_absolute_path(name)) {
     errno = ENOENT;
@@ -449,24 +473,15 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
     return -1;
   }
 
-  // Splitting dir parent name from dir to be created name
-  char *c = strrchr(dname, DIR_DELIM_CHR);
-  int c_idx = (int)(c - dname);
-
-  char *parent_name = (char*) malloc((c_idx + 2) * sizeof(char));
-  *parent_name = '\0';
-  strncat(parent_name, dname, c_idx + 1);
-
-  char *name = (char*) malloc(strlen(c) * sizeof(char));
-  strcpy(name, c+1);
-  // ------
+  char *name = fs_get_basename(dname);
 
   if (strlen(name) > fs_nodeinfo_max_name_size(sb)) {
-    free(parent_name);
     free(name);
     errno = ENAMETOOLONG;
     return -1;
   }
+
+  char *parent_name = fs_get_basedir(dname);
 
   uint64_t parent_blk = fs_find_blk(sb, parent_name);
   free(parent_name);
