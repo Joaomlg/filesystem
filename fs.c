@@ -47,14 +47,18 @@ int fs_write_blk(struct superblock *sb, uint64_t pos, void *data) {
   return 0;
 }
 
-int fs_read_blk(struct superblock *sb, uint64_t pos, void *buf) {
+int fs_read_blk_sz(struct superblock *sb, uint64_t pos, void *buf, size_t sz) {
   if (lseek(sb->fd, pos * sb->blksz, SEEK_SET) == -1) 
     return -1;
   
-  if (read(sb->fd, buf, sb->blksz) == -1) 
+  if (read(sb->fd, buf, sz) == -1) 
     return -1;
   
   return 0;
+}
+
+int fs_read_blk(struct superblock *sb, uint64_t pos, void *buf) {
+  return fs_read_blk_sz(sb, pos, buf, sb->blksz);
 }
 
 int fs_is_absolute_path(const char *path) {
@@ -658,7 +662,63 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 }
 
 ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t bufsz) {
-  return 0;
+  if (sb->magic != SUPERBLOCK_MAGIC) {
+    errno = EBADF;
+    return -1;
+  }
+
+  if (bufsz == 0) {
+    return 0;
+  }
+
+  if (strlen(fname) == 0 || !fs_is_absolute_path(fname) || strchr(fname, ' ') != NULL) {
+    errno = ENOENT;
+    return -1;
+  }
+
+  uint64_t block = fs_find_blk(sb, fname);
+
+  if (block == (uint64_t) -1) {
+    errno = ENOENT;
+    return -1;
+  }
+
+  struct inode *inode = (struct inode*) malloc(sb->blksz);
+
+  fs_read_blk(sb, block, (void*) inode);
+
+  if (inode->mode != IMREG) {
+    free(inode);
+    errno = EISDIR;
+    return -1;
+  }
+
+  struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
+  fs_read_blk(sb, inode->meta, (void*) nodeinfo);
+
+  uint64_t nbytes = MIN(nodeinfo->size, bufsz);
+
+  free(nodeinfo);
+
+  uint64_t max_links = fs_inode_max_links(sb);
+
+  uint64_t nlinks = CEIL(nbytes, sb->blksz);
+
+  for (int j=0; j<nlinks; j++) {
+    int i = j % max_links;
+
+    if (i == 0 && j != 0) {
+      fs_read_blk(sb, inode->next, (void*) inode);
+    }
+
+    uint64_t n = (j < nlinks - 1) ? sb->blksz : nbytes % sb->blksz;
+
+    fs_read_blk_sz(sb, inode->links[i], buf + j * sb->blksz, n);
+  }
+
+  free(inode);
+  
+  return nbytes;
 }
 
 int fs_unlink(struct superblock *sb, const char *fname) {
