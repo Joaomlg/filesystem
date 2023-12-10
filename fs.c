@@ -641,6 +641,61 @@ ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t
 }
 
 int fs_unlink(struct superblock *sb, const char *fname) {
+  if (sb->magic != SUPERBLOCK_MAGIC) {
+    errno = EBADF;
+    return -1;
+  }
+
+  if (strlen(fname) == 0 || !fs_is_absolute_path(fname) || strchr(fname, ' ') != NULL) {
+    errno = ENOENT;
+    return -1;
+  }
+
+  uint64_t block = fs_find_blk(sb, fname);
+
+  if (block == (uint64_t) -1) {
+    errno = ENOENT;
+    return -1;
+  }
+
+  struct inode *inode = (struct inode*) malloc(sb->blksz);
+
+  fs_read_blk(sb, block, (void*) inode);
+
+  if (inode->mode != IMREG) {
+    free(inode);
+    errno = EISDIR;
+    return -1;
+  }
+
+  fs_unlink_blk(sb, inode->parent, block);
+
+  struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
+
+  fs_read_blk(sb, inode->meta, (void*) nodeinfo);
+  fs_put_block(sb, inode->meta);
+
+  uint64_t max_links = fs_inode_max_links(sb);
+  uint64_t nlinks = CEIL(nodeinfo->size, sb->blksz);
+
+  free(nodeinfo);
+
+  for (int j=0; j<nlinks; j++) {
+    int i = j % max_links;
+
+    if (i == 0 && j != 0) {
+      fs_put_block(sb, block);
+      block = inode->next;
+      fs_read_blk(sb, inode->next, (void*) inode);
+    }
+
+    fs_put_block(sb, inode->links[i]);
+  }
+
+  fs_put_block(sb, block);
+
+  free(inode);
+
   return 0;
 }
 
