@@ -168,13 +168,29 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 		ERROR("FAIL fs_read_file /dir.1/test.2: Content mismatch\n")
 	free(buf);
 
+	char *test3 = (char*) malloc(3600 * sizeof(char));
+	*test3 = '\0';
+	for (int i=0; i<3599; i++) {
+		strcat(test3, "c");
+	}
+
+	if(fs_write_file(sb, "/dir.1/test.3", test3, strlen(test3)+1) < 0)
+		ERROR("FAIL fs_write_file inside directory\n");
+
+	buf = (char*) malloc((strlen(test3)+1) * sizeof(char));
+	if (fs_read_file(sb, "/dir.1/test.3", buf, strlen(test3)+1) == -1)
+		ERROR("FAIL fs_read_file /dir.1/test.3\n");
+	if (strcmp(buf, test3) != 0)
+		ERROR("FAIL fs_read_file /dir.1/test.3: Content mismatch\n")
+	free(buf);
+
 	char *dir = fs_list_dir(sb, "/");
 	if(strcmp(dir, "test.1 dir.1/"))
 		ERROR("FAIL fs_list_dir /\n");
 	free(dir);
 
 	dir = fs_list_dir(sb, "/dir.1");
-	if(strcmp(dir, "test.2"))
+	if(strcmp(dir, "test.2 test.3"))
 		ERROR("FAIL fs_list_dir /dir.1\n");
 	free(dir);
 
@@ -189,6 +205,8 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 
 	if(fs_unlink(sb, "/dir.1/test.2") < 0)
 		ERROR("FAIL fs_unlink /dir.1/test.2\n");
+	if(fs_unlink(sb, "/dir.1/test.3") < 0)
+		ERROR("FAIL fs_unlink /dir.1/test.3\n");
 	if(fs_rmdir(sb, "/dir.1") < 0)
 		ERROR("FAIL fs_rmdir /dir.1\n");
 
