@@ -37,14 +37,18 @@ size_t fs_nodeinfo_max_name_size(struct superblock *sb) {
   return (sb->blksz - sizeof(struct nodeinfo)) / (sizeof(char));
 }
 
-int fs_write_blk(struct superblock *sb, uint64_t pos, void *data) {
+int fs_write_blk_sz(struct superblock *sb, uint64_t pos, void *data, size_t sz) {
   if (lseek(sb->fd, pos * sb->blksz, SEEK_SET) == -1) 
     return -1;
   
-  if (write(sb->fd, data, sb->blksz) == -1) 
+  if (write(sb->fd, data, sz) == -1) 
     return -1;
   
   return 0;
+}
+
+int fs_write_blk(struct superblock *sb, uint64_t pos, void *data) {
+  return fs_write_blk_sz(sb, pos, data, sb->blksz);
 }
 
 int fs_read_blk_sz(struct superblock *sb, uint64_t pos, void *buf, size_t sz) {
@@ -612,42 +616,32 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
   inode->mode = IMREG;
   inode->parent = parent_block;
   inode->meta = meta_block;
-  
-  if (child_nblocks == 0) {
-    inode->next = 0;
-    for (int i=0; i<data_nblocks; i++) {
-      inode->links[i] = fs_get_block(sb);
-      fs_write_blk(sb, inode->links[i], (void*)(buf + (i * sb->blksz)));
-    }
-  } else {
-    uint64_t child_block = fs_get_block(sb);
-    inode->next = child_block;
+  inode->next = 0;
 
-    struct inode *child_inode = (struct inode*) malloc(sb->blksz);
+  uint64_t base_block = block;
 
-    for (int j=0; j<child_nblocks; j++) {
-      child_inode->mode = IMCHILD;
-      child_inode->parent = block;
-      child_inode->meta = (j == 0) ? block : child_block;
-      child_inode->next = (j == child_nblocks - 1) ? 0 : fs_get_block(sb);
+  for (int j=0; j<data_nblocks; j++) {
+    int i = j % max_links;
 
-      uint64_t child_nlinks = MIN(data_nblocks - (max_links * j), max_links);
+    if (i == 0 && j != 0) {
+      uint64_t next_block = fs_get_block(sb);
 
-      for (int i=0; i<child_nlinks; i++) {
-        inode->links[i] = fs_get_block(sb);
-        fs_write_blk(sb, inode->links[i], (void*)(buf + ((j * max_links + i) * sb->blksz)));
-      }
+      inode->next = next_block;
 
-      for (int i=(child_nlinks % max_links); i<max_links; i++) {
-        child_inode->links[i] = (uint64_t) -1;
-      }
+      fs_write_blk(sb, block, (void*) inode);
 
-      fs_write_blk(sb, child_block, (void*) child_inode);
+      inode->mode = IMCHILD;
+      inode->parent = base_block;
+      inode->meta = block;
+      inode->next = 0;
 
-      child_block = child_inode->next;
+      block = next_block;
     }
 
-    free(child_inode);
+    inode->links[i] = fs_get_block(sb);
+
+    uint64_t n = (j < data_nblocks - 1) ? sb->blksz : cnt - j * sb->blksz;
+    fs_write_blk_sz(sb, inode->links[i], (void*)(buf + j * sb->blksz), n);
   }
 
   for (int i=(data_nblocks % max_links); i<max_links; i++) {
