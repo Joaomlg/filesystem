@@ -268,7 +268,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
     return NULL;
   }
 
-  if (flock(fd, LOCK_EX) == -1) {
+  if (flock(fd, LOCK_EX | LOCK_NB) == -1) {
     close(fd);
     errno = EBUSY;
     return NULL;
@@ -354,7 +354,7 @@ struct superblock * fs_open(const char *fname) {
     return NULL;
   }
 
-  if (flock(fd, LOCK_EX) == -1) {
+  if (flock(fd, LOCK_EX | LOCK_NB) == -1) {
     close(fd);
     errno = EBUSY;
     return NULL;
