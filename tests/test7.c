@@ -47,7 +47,7 @@ void generate_file(uint64_t fsize)/*{{{*/
 /*}}}*/
 
 
-#define ERROR(str) { puts(str); printf("errno: %d\n", errno); return -1; }
+#define ERROR(str) { puts(str); return -1; }
 int test(uint64_t fsize, uint64_t blksz)/*{{{*/
 {
 	int err;
@@ -130,42 +130,58 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 {
 	uint64_t freeblks = sb->freeblks;
 	// printf("had %llu free blocks\n", (long long unsigned)sb->freeblks);
+	
+	char *buf;
+
+	if(fs_write_file(sb, "/test.1", "test.1", strlen("test.1")+1) < 0)
+		ERROR("FAIL fs_write_file\n");
+	
+	buf = (char*) malloc((strlen("test.1")+1) * sizeof(char));
+	if (fs_read_file(sb, "/test.1", buf, strlen("test.1")+1) == -1)
+		ERROR("FAIL fs_read_file /test.1\n");
+	if (strcmp(buf, "test.1") != 0)
+		ERROR("FAIL fs_read_file /test.1: Content mismatch\n")
+	free(buf);
 
 	if(fs_mkdir(sb, "/dir.1") < 0)
 		ERROR("FAIL fs_mkdir\n");
+	if(fs_write_file(sb, "/dir.1/test.2", "test.2", strlen("test.2")+1) < 0)
+		ERROR("FAIL fs_write_file inside directory\n");
+
+	buf = (char*) malloc((strlen("test.2")+1) * sizeof(char));
+	if (fs_read_file(sb, "/dir.1/test.2", buf, strlen("test.2")+1) == -1)
+		ERROR("FAIL fs_read_file /dir.1/test.2\n");
+	if (strcmp(buf, "test.2") != 0)
+		ERROR("FAIL fs_read_file /dir.1/test.2: Content mismatch\n")
+	free(buf);
 
 	char *dir = fs_list_dir(sb, "/");
-	if(strcmp(dir, "dir.1/"))
+	if(strcmp(dir, "test.1 dir.1/"))
 		ERROR("FAIL fs_list_dir /\n");
 	free(dir);
 
-	if(fs_mkdir(sb, "/dir.1/dir.2") < 0)
-		ERROR("FAIL fs_mkdir 2\n");
-
 	dir = fs_list_dir(sb, "/dir.1");
-	if(strcmp(dir, "dir.2/"))
+	if(strcmp(dir, "test.2"))
 		ERROR("FAIL fs_list_dir /dir.1\n");
 	free(dir);
 
-	dir = fs_list_dir(sb, "/dir.1/dir.2");
-	if(strcmp(dir, ""))
-		ERROR("FAIL fs_list_dir /dir.2\n");
+	// printf("have %llu free blocks\n", (long long unsigned)sb->freeblks);
+	if(fs_unlink(sb, "/test.1") < 0)
+		ERROR("FAIL fs_unlink /test.1\n");
+
+	dir = fs_list_dir(sb, "/");
+	if(strcmp(dir, "dir.1/"))
+		ERROR("FAIL fs_list_dir\n");
 	free(dir);
 
-	if(fs_rmdir(sb, "/dir.1/dir.2") < 0)
-		ERROR("FAIL fs_rmdir /dir.2\n");
-
-	dir = fs_list_dir(sb, "/dir.1");
-	if(strcmp(dir, ""))
-		ERROR("FAIL fs_list_dir /dir.1 2\n");
-	free(dir);
-
+	if(fs_unlink(sb, "/dir.1/test.2") < 0)
+		ERROR("FAIL fs_unlink /dir.1/test.2\n");
 	if(fs_rmdir(sb, "/dir.1") < 0)
 		ERROR("FAIL fs_rmdir /dir.1\n");
 
 	dir = fs_list_dir(sb, "/");
 	if(strcmp(dir, ""))
-		ERROR("FAIL fs_list_dir / 2\n");
+		ERROR("FAIL fs_list_dir /\n");
 	free(dir);
 
 	uint64_t freeblks2 = sb->freeblks;
