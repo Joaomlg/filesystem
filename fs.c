@@ -114,9 +114,17 @@ uint64_t fs_find_blk(struct superblock *sb, const char *name) {
   while (token != NULL) {
     int found = 0;
 
-    for (int i=0; i<nodeinfo->size; i++) {
-      fs_read_blk(sb, inode->links[i], (void*)child_inode);
+    uint64_t max_links = fs_inode_max_links(sb);
 
+    int i = -1;
+    int j = 0;
+
+    while (j < nodeinfo->size && ++i < max_links) {
+      if (inode->links[i] == (uint64_t) -1) {
+        continue;
+      }
+
+      fs_read_blk(sb, inode->links[i], (void*)child_inode);
       fs_read_blk(sb, child_inode->meta, (void*)child_nodeinfo);
 
       if (strcmp(child_nodeinfo->name, token) == 0) {
@@ -124,6 +132,8 @@ uint64_t fs_find_blk(struct superblock *sb, const char *name) {
         blk_pos = inode->links[i];        
         break;
       }
+
+      j++;
     }
 
     if (found != 1) {
@@ -209,12 +219,23 @@ int fs_unlink_blk(struct superblock *sb, uint64_t parent_blk, uint64_t link_blk)
   struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
   fs_read_blk(sb, inode->meta, (void*) nodeinfo);
 
-  for (int i=0; i<nodeinfo->size; i++) {
+  uint64_t max_links = fs_inode_max_links(sb);
+
+  int i = -1;
+  int j = 0;
+
+  while (j < nodeinfo->size && ++i < max_links) {
+    if (inode->links[i] == (uint64_t) -1) {
+      continue;
+    }
+
     if (inode->links[i] == link_blk) {
       inode->links[i] = (uint64_t) -1;
       nodeinfo->size--;
       break;
     }
+
+    j++;
   }
 
   fs_write_blk(sb, parent_blk, (void*) inode);
@@ -449,7 +470,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
     return -1;
   }
 
-  if (!fs_is_absolute_path(fname)) {
+  if (strlen(fname) == 0 || !fs_is_absolute_path(fname) || strchr(fname, ' ') != NULL) {
     errno = ENOENT;
     return -1;
   }
@@ -499,9 +520,9 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
     uint64_t data_nblocks = CEIL(cnt, sb->blksz);
 
     for (int j=0; j<data_nblocks; j++) {
-      int i = data_nblocks % (j + 1);
+      int i = j % max_links;
 
-      if ((j + 1) % max_links == 0) {
+      if (i == 0 && j != 0) {
         if (aux_inode->next != 0) {
           fs_read_blk(sb, aux_inode->next, (void*) aux_inode);
         } else {
@@ -850,7 +871,16 @@ char * fs_list_dir(struct superblock *sb, const char *dname) {
   char *result = (char*) malloc(100 * sizeof(char));
   *result = '\0';
 
-  for (int i=0; i<nodeinfo->size; i++) {
+  uint64_t max_links = fs_inode_max_links(sb);
+
+  int i = -1;
+  int j = 0;
+
+  while (j < nodeinfo->size && ++i < max_links) {
+    if (inode->links[i] == (uint64_t) -1) {
+      continue;
+    }
+
     fs_read_blk(sb, inode->links[i], (void*) link_inode);
     fs_read_blk(sb, link_inode->meta, (void*) link_nodeinfo);
 
@@ -863,6 +893,8 @@ char * fs_list_dir(struct superblock *sb, const char *dname) {
     if (i < nodeinfo->size - 1) {
       strcat(result, " ");
     }
+
+    j++;
   }
 
   free(inode);
