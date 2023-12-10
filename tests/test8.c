@@ -149,6 +149,8 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 		ERROR("FAIL fs_read_file /test.1: Content mismatch\n")
 	free(buf);
 
+	free(test1);
+
 	if(fs_mkdir(sb, "/dir.1") < 0)
 		ERROR("FAIL fs_mkdir\n");
 
@@ -168,6 +170,8 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 		ERROR("FAIL fs_read_file /dir.1/test.2: Content mismatch\n")
 	free(buf);
 
+	free(test2);
+
 	char *test3 = (char*) malloc(3600 * sizeof(char));
 	*test3 = '\0';
 	for (int i=0; i<3599; i++) {
@@ -183,6 +187,8 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 	if (strcmp(buf, test3) != 0)
 		ERROR("FAIL fs_read_file /dir.1/test.3: Content mismatch\n")
 	free(buf);
+
+	free(test3);
 
 	char *dir = fs_list_dir(sb, "/");
 	if(strcmp(dir, "test.1 dir.1/"))
