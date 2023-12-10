@@ -711,7 +711,7 @@ ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t
       fs_read_blk(sb, inode->next, (void*) inode);
     }
 
-    uint64_t n = (j < nlinks - 1) ? sb->blksz : nbytes % sb->blksz;
+    uint64_t n = (j < nlinks - 1) ? sb->blksz : nbytes - j * sb->blksz;
 
     fs_read_blk_sz(sb, inode->links[i], buf + j * sb->blksz, n);
   }
