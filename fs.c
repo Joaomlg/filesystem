@@ -527,39 +527,74 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 
     uint64_t data_nblocks = CEIL(cnt, sb->blksz);
 
+    int new_inode = 0;
+
     for (int j=0; j<data_nblocks; j++) {
       int i = j % max_links;
 
       if (i == 0 && j != 0) {
         if (aux_inode->next != 0) {
+          fs_write_blk(sb, aux_block, (void*) aux_inode);
+          
+          aux_block = aux_inode->next;
+
           fs_read_blk(sb, aux_inode->next, (void*) aux_inode);
         } else {
-          aux_inode->next = fs_get_block(sb);
+          uint64_t next_block = fs_get_block(sb);
+          aux_inode->next = next_block;
 
           fs_write_blk(sb, aux_block, (void*) aux_inode);
           
           aux_inode->mode = IMCHILD;
           aux_inode->meta = aux_block;
           aux_inode->parent = block;
-          
-          aux_block = aux_inode->next;
-
           aux_inode->next = 0;
+
+          aux_block = next_block;
+
+          new_inode = 1;          
         }
       }
       
-      if (aux_inode->links[i] == (uint64_t) -1) {
+      if (aux_inode->links[i] == (uint64_t) -1 || new_inode) {
         aux_inode->links[i] = fs_get_block(sb);
       }
 
-      fs_write_blk(sb, aux_inode->links[i], (void*)(buf + (i * sb->blksz)));
+      uint64_t n = (j < data_nblocks - 1) ? sb->blksz : cnt - j * sb->blksz;
+      fs_write_blk_sz(sb, aux_inode->links[i], (void*)(buf + j * sb->blksz), n);
     }
 
     for (int i=(data_nblocks % max_links); i<max_links; i++) {
+      // Cleaning remaining allocated link blocks
+      if (aux_inode->links[i] != (uint64_t) -1 && !new_inode) {
+        fs_put_block(sb, aux_inode->links[i]);
+      }
       aux_inode->links[i] = (uint64_t) -1;
     }
 
     fs_write_blk(sb, aux_block, (void*) aux_inode);
+
+    // Cleaning remaining allocated child blocks
+    while (aux_inode->next != 0) {
+      uint64_t next_block = aux_inode->next;
+
+      aux_inode->next = 0;
+      fs_write_blk(sb, aux_block, (void*) aux_inode);
+
+      aux_block = next_block;
+      fs_read_blk(sb, aux_block, (void*) aux_inode);
+
+      for (int i=0; i<max_links; i++) {
+        if (aux_inode->links[i] != (uint64_t) -1) {
+          fs_put_block(sb, aux_inode->links[i]);
+        }
+      }
+      
+      fs_put_block(sb, aux_block);
+    }
+
+    free(inode);
+    free(aux_inode);
 
     return 0;
   }
