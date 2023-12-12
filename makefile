@@ -10,3 +10,5 @@ clean:
 	rm -f *.log
 	rm -f img
 	rm -f test[0-9]
+	rm -rf bin
+	rm -rf log
