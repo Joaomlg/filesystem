@@ -133,26 +133,76 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 	
 	char *buf;
 
-	if(fs_write_file(sb, "/test.1", "test.1", strlen("test.1")+1) < 0)
+	char *test1 = (char*) malloc(512 * sizeof(char));
+	*test1 = '\0';
+	for (int i=0; i<511; i++) {
+		strcat(test1, "a");
+	}
+
+	char *test2 = (char*) malloc(1800 * sizeof(char));
+	*test2 = '\0';
+	for (int i=0; i<1799; i++) {
+		strcat(test2, "b");
+	}
+
+	char *test3 = (char*) malloc(3600 * sizeof(char));
+	*test3 = '\0';
+	for (int i=0; i<3599; i++) {
+		strcat(test3, "c");
+	}
+
+	if(fs_write_file(sb, "/test.1", test1, strlen(test1)+1) < 0)
 		ERROR("FAIL fs_write_file\n");
-	
-	buf = (char*) malloc((strlen("test.1")+1) * sizeof(char));
-	if (fs_read_file(sb, "/test.1", buf, strlen("test.1")+1) == -1)
+	buf = (char*) malloc((strlen(test1)+1) * sizeof(char));
+	if (fs_read_file(sb, "/test.1", buf, strlen(test1)+1) == -1)
 		ERROR("FAIL fs_read_file /test.1\n");
-	if (strcmp(buf, "test.1") != 0)
+	if (strcmp(buf, test1) != 0)
+		ERROR("FAIL fs_read_file /test.1: Content mismatch\n")
+	free(buf);
+	if(fs_write_file(sb, "/test.1", test2, strlen(test2)+1) < 0)
+		ERROR("FAIL fs_write_file\n");
+	buf = (char*) malloc((strlen(test2)+1) * sizeof(char));
+	if (fs_read_file(sb, "/test.1", buf, strlen(test2)+1) == -1)
+		ERROR("FAIL fs_read_file /test.1\n");
+	if (strcmp(buf, test2) != 0)
 		ERROR("FAIL fs_read_file /test.1: Content mismatch\n")
 	free(buf);
 
 	if(fs_mkdir(sb, "/dir.1") < 0)
 		ERROR("FAIL fs_mkdir\n");
-	if(fs_write_file(sb, "/dir.1/test.2", "test.2", strlen("test.2")+1) < 0)
-		ERROR("FAIL fs_write_file inside directory\n");
 
-	buf = (char*) malloc((strlen("test.2")+1) * sizeof(char));
-	if (fs_read_file(sb, "/dir.1/test.2", buf, strlen("test.2")+1) == -1)
+	if(fs_write_file(sb, "/dir.1/test.2", test2, strlen(test2)+1) < 0)
+		ERROR("FAIL fs_write_file inside directory\n");
+	buf = (char*) malloc((strlen(test2)+1) * sizeof(char));
+	if (fs_read_file(sb, "/dir.1/test.2", buf, strlen(test2)+1) == -1)
 		ERROR("FAIL fs_read_file /dir.1/test.2\n");
-	if (strcmp(buf, "test.2") != 0)
+	if (strcmp(buf, test2) != 0)
 		ERROR("FAIL fs_read_file /dir.1/test.2: Content mismatch\n")
+	free(buf);
+	if(fs_write_file(sb, "/dir.1/test.2", test1, strlen(test1)+1) < 0)
+		ERROR("FAIL fs_write_file inside directory\n");
+	buf = (char*) malloc((strlen(test1)+1) * sizeof(char));
+	if (fs_read_file(sb, "/dir.1/test.2", buf, strlen(test1)+1) == -1)
+		ERROR("FAIL fs_read_file /dir.1/test.2\n");
+	if (strcmp(buf, test1) != 0)
+		ERROR("FAIL fs_read_file /dir.1/test.2: Content mismatch\n")
+	free(buf);
+
+	if(fs_write_file(sb, "/dir.1/test.3", test3, strlen(test3)+1) < 0)
+		ERROR("FAIL fs_write_file inside directory\n");
+	buf = (char*) malloc((strlen(test3)+1) * sizeof(char));
+	if (fs_read_file(sb, "/dir.1/test.3", buf, strlen(test3)+1) == -1)
+		ERROR("FAIL fs_read_file /dir.1/test.3\n");
+	if (strcmp(buf, test3) != 0)
+		ERROR("FAIL fs_read_file /dir.1/test.3: Content mismatch\n")
+	free(buf);
+	if(fs_write_file(sb, "/dir.1/test.3", test3, strlen(test3)+1) < 0)
+		ERROR("FAIL fs_write_file inside directory\n");
+	buf = (char*) malloc(140 * sizeof(char));
+	if (fs_read_file(sb, "/dir.1/test.3", buf, 140) == -1)
+		ERROR("FAIL fs_read_file /dir.1/test.3\n");
+	if (strncmp(buf, test3, 140) != 0)
+		ERROR("FAIL fs_read_file /dir.1/test.3: Content mismatch\n")
 	free(buf);
 
 	char *dir = fs_list_dir(sb, "/");
@@ -161,7 +211,7 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 	free(dir);
 
 	dir = fs_list_dir(sb, "/dir.1");
-	if(strcmp(dir, "test.2"))
+	if(strcmp(dir, "test.2 test.3"))
 		ERROR("FAIL fs_list_dir /dir.1\n");
 	free(dir);
 
@@ -176,6 +226,8 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 
 	if(fs_unlink(sb, "/dir.1/test.2") < 0)
 		ERROR("FAIL fs_unlink /dir.1/test.2\n");
+	if(fs_unlink(sb, "/dir.1/test.3") < 0)
+		ERROR("FAIL fs_unlink /dir.1/test.3\n");
 	if(fs_rmdir(sb, "/dir.1") < 0)
 		ERROR("FAIL fs_rmdir /dir.1\n");
 
@@ -183,6 +235,10 @@ int fs_ops_test(struct superblock *sb)/*{{{*/
 	if(strcmp(dir, ""))
 		ERROR("FAIL fs_list_dir /\n");
 	free(dir);
+
+	free(test1);
+	free(test2);
+	free(test3);
 
 	uint64_t freeblks2 = sb->freeblks;
 	// printf("final %llu free blocks\n", (long long unsigned)sb->freeblks);
