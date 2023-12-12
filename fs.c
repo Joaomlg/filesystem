@@ -67,10 +67,6 @@ int fs_read_blk(struct superblock *sb, uint64_t pos, void *buf) {
   return fs_read_blk_sz(sb, pos, buf, sb->blksz);
 }
 
-int fs_is_absolute_path(const char *path) {
-  return strncmp(path, ROOT_DIR_NAME, strlen(ROOT_DIR_NAME)) == 0;
-}
-
 char * fs_get_basedir(const char *path) {
   int n = (int)(strrchr(path, DIR_DELIM_CHR) - path);
 
@@ -95,12 +91,13 @@ char * fs_get_basename(const char *path) {
   return basename;
 }
 
-uint64_t fs_find_blk(struct superblock *sb, const char *name) {
-  if (!fs_is_absolute_path(name)) {
-    errno = ENOENT;
-    return INVALID_BLOCK;
-  }
+int fs_is_invalid_name(const char *name) {
+  return strlen(name) == 0 \
+    || strncmp(name, ROOT_DIR_NAME, strlen(ROOT_DIR_NAME)) != 0 \
+    || strchr(name, ' ') != NULL;
+}
 
+uint64_t fs_find_blk(struct superblock *sb, const char *name) {
   if (strlen(name) == 1) {
     return sb->root;
   }
@@ -480,7 +477,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
     return -1;
   }
 
-  if (strlen(fname) == 0 || !fs_is_absolute_path(fname) || strchr(fname, ' ') != NULL) {
+  if (fs_is_invalid_name(fname)) {
     errno = ENOENT;
     return -1;
   }
@@ -660,7 +657,7 @@ ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t
     return 0;
   }
 
-  if (strlen(fname) == 0 || !fs_is_absolute_path(fname) || strchr(fname, ' ') != NULL) {
+  if (fs_is_invalid_name(fname)) {
     errno = ENOENT;
     return -1;
   }
@@ -716,7 +713,7 @@ int fs_unlink(struct superblock *sb, const char *fname) {
     return -1;
   }
 
-  if (strlen(fname) == 0 || !fs_is_absolute_path(fname) || strchr(fname, ' ') != NULL) {
+  if (fs_is_invalid_name(fname)) {
     errno = ENOENT;
     return -1;
   }
@@ -775,7 +772,7 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
     return -1;
   }
 
-  if (strlen(dname) == 0 || !fs_is_absolute_path(dname) || strchr(dname, ' ') != NULL) {
+  if (fs_is_invalid_name(dname)) {
     errno = ENOTDIR;
     return -1;
   }
@@ -852,6 +849,11 @@ int fs_rmdir(struct superblock *sb, const char *dname) {
     return -1;
   }
 
+  if (fs_is_invalid_name(dname)) {
+    errno = ENOTDIR;
+    return -1;
+  }
+
   uint64_t blk = fs_find_blk(sb, dname);
 
   if (blk == INVALID_BLOCK) {
@@ -893,6 +895,11 @@ char * fs_list_dir(struct superblock *sb, const char *dname) {
   if (sb->magic != SUPERBLOCK_MAGIC) {
     errno = EBADF;
     return NULL;
+  }
+
+  if (fs_is_invalid_name(dname)) {
+    errno = ENOTDIR;
+    return -1;
   }
 
   uint64_t blk = fs_find_blk(sb, dname);
