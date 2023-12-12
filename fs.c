@@ -22,6 +22,8 @@
 #define ROOT_INFO_BLK 2
 #define FREE_LIST_BLK 3
 
+#define INVALID_BLOCK ((uint64_t) -1)
+
 /****************************************************************************
  * auxiliar functions
  ***************************************************************************/
@@ -29,11 +31,11 @@
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 #define CEIL(X, Y) (((X) / (Y)) + (((X) % (Y) > 0) ? 1 : 0))
 
-size_t fs_inode_max_links(struct superblock *sb) {
+uint64_t fs_inode_max_links(struct superblock *sb) {
   return (sb->blksz - sizeof(struct inode)) / (sizeof(uint64_t));
 }
 
-size_t fs_nodeinfo_max_name_size(struct superblock *sb) {
+uint64_t fs_nodeinfo_max_name_size(struct superblock *sb) {
   return (sb->blksz - sizeof(struct nodeinfo)) / (sizeof(char));
 }
 
@@ -96,7 +98,7 @@ char * fs_get_basename(const char *path) {
 uint64_t fs_find_blk(struct superblock *sb, const char *name) {
   if (!fs_is_absolute_path(name)) {
     errno = ENOENT;
-    return (uint64_t) -1;
+    return INVALID_BLOCK;
   }
 
   if (strlen(name) == 1) {
@@ -128,7 +130,7 @@ uint64_t fs_find_blk(struct superblock *sb, const char *name) {
     int j = 0;
 
     while (j < nodeinfo->size && ++i < max_links) {
-      if (inode->links[i] == (uint64_t) -1) {
+      if (inode->links[i] == INVALID_BLOCK) {
         continue;
       }
 
@@ -146,7 +148,7 @@ uint64_t fs_find_blk(struct superblock *sb, const char *name) {
 
     if (found != 1) {
       errno = ENOENT;
-      blk_pos = (uint64_t) -1;
+      blk_pos = INVALID_BLOCK;
       break;
     }
 
@@ -158,7 +160,7 @@ uint64_t fs_find_blk(struct superblock *sb, const char *name) {
 
     if (child_inode->mode != IMDIR) {
       errno = ENOTDIR;
-      blk_pos = (uint64_t) -1;
+      blk_pos = INVALID_BLOCK;
       break;
     }
 
@@ -198,7 +200,7 @@ int fs_link_blk(struct superblock *sb, uint64_t parent_blk, uint64_t link_blk) {
   }
 
   for (int i=0; i<max_links; i++) {
-    if (inode->links[i] == (uint64_t) -1) {
+    if (inode->links[i] == INVALID_BLOCK) {
       inode->links[i] = link_blk;
       nodeinfo->size++;
       break;
@@ -233,12 +235,12 @@ int fs_unlink_blk(struct superblock *sb, uint64_t parent_blk, uint64_t link_blk)
   int j = 0;
 
   while (j < nodeinfo->size && ++i < max_links) {
-    if (inode->links[i] == (uint64_t) -1) {
+    if (inode->links[i] == INVALID_BLOCK) {
       continue;
     }
 
     if (inode->links[i] == link_blk) {
-      inode->links[i] = (uint64_t) -1;
+      inode->links[i] = INVALID_BLOCK;
       nodeinfo->size--;
       break;
     }
@@ -313,7 +315,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
   root_inode->next = 0;
 
   for (int i=0; i<fs_inode_max_links(sb); i++) {
-    root_inode->links[i] = (uint64_t) -1;
+    root_inode->links[i] = INVALID_BLOCK;
   }
 
   if (fs_write_blk(sb, ROOT_INODE_BLK, (void*) root_inode) == -1)
@@ -413,7 +415,7 @@ int fs_close(struct superblock *sb) {
 uint64_t fs_get_block(struct superblock *sb) {
   if (sb->magic != SUPERBLOCK_MAGIC) {
     errno = EBADF;
-    return (uint64_t) -1;
+    return INVALID_BLOCK;
   }
 
   if (sb->freeblks == 0) 
@@ -422,11 +424,11 @@ uint64_t fs_get_block(struct superblock *sb) {
   struct freepage* freepage = (struct freepage*) malloc(sb->blksz);
 
   if (freepage == NULL) 
-    return (uint64_t) -1;
+    return INVALID_BLOCK;
 
   if (fs_read_blk(sb, sb->freelist, (void *) freepage) == -1) {
     free(freepage);
-    return (uint64_t) -1;
+    return INVALID_BLOCK;
   }
 
   uint64_t block = sb->freelist;
@@ -436,7 +438,7 @@ uint64_t fs_get_block(struct superblock *sb) {
 
   if (fs_write_blk(sb, SUPERBLOCK_BLK, (void *) sb) == -1) {
     free(freepage);
-    return (uint64_t) -1;
+    return INVALID_BLOCK;
   }
 
   free(freepage);
@@ -499,7 +501,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
   uint64_t block = fs_find_blk(sb, fname);
 
   // If file already exists
-  if (block != (uint64_t) -1) {
+  if (block != INVALID_BLOCK) {
     fs_read_blk(sb, block, (void*) inode);
 
     if (inode->mode != IMREG) {
@@ -526,14 +528,14 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
   }
 
   // If block not exists
-  if (block == (uint64_t) -1) {
+  if (block == INVALID_BLOCK) {
     char *basedir = fs_get_basedir(fname);
 
     uint64_t parent_block = fs_find_blk(sb, basedir);
 
     free(basedir);
 
-    if (parent_block == (uint64_t) -1) {
+    if (parent_block == INVALID_BLOCK) {
       free(inode);
       free(nodeinfo);
       errno = ENOTDIR;
@@ -605,7 +607,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
       }
     }
 
-    if (inode->links[i] == (uint64_t) -1 || new_inode) {
+    if (inode->links[i] == INVALID_BLOCK || new_inode) {
       inode->links[i] = fs_get_block(sb);
     }
 
@@ -615,11 +617,11 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 
   for (int i=(needed_blocks % max_links); i<max_links; i++) {
     // Cleaning remaining allocated link blocks
-    if (!new_inode && inode->links[i] != (uint64_t) -1) {
+    if (!new_inode && inode->links[i] != INVALID_BLOCK) {
       fs_put_block(sb, inode->links[i]);
     }
 
-    inode->links[i] = (uint64_t) -1;
+    inode->links[i] = INVALID_BLOCK;
   }
 
   fs_write_blk(sb, block, (void*)inode);
@@ -635,7 +637,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
     fs_read_blk(sb, block, (void*) inode);
 
     for (int i=0; i<max_links; i++) {
-      if (inode->links[i] != (uint64_t) -1) {
+      if (inode->links[i] != INVALID_BLOCK) {
         fs_put_block(sb, inode->links[i]);
       }
     }
@@ -665,7 +667,7 @@ ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t
 
   uint64_t block = fs_find_blk(sb, fname);
 
-  if (block == (uint64_t) -1) {
+  if (block == INVALID_BLOCK) {
     errno = ENOENT;
     return -1;
   }
@@ -721,7 +723,7 @@ int fs_unlink(struct superblock *sb, const char *fname) {
 
   uint64_t block = fs_find_blk(sb, fname);
 
-  if (block == (uint64_t) -1) {
+  if (block == INVALID_BLOCK) {
     errno = ENOENT;
     return -1;
   }
@@ -783,7 +785,7 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
     return -1;
   }
 
-  if (fs_find_blk(sb, dname) != (uint64_t) -1) {
+  if (fs_find_blk(sb, dname) != INVALID_BLOCK) {
     errno = EEXIST;
     return -1;
   }
@@ -801,7 +803,7 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
   uint64_t parent_blk = fs_find_blk(sb, parent_name);
   free(parent_name);
 
-  if (parent_blk == (uint64_t) -1) {
+  if (parent_blk == INVALID_BLOCK) {
     free(name);
     errno = ENOTDIR;
     return -1;
@@ -834,7 +836,7 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
   inode->meta = nodeinfo_blk;
 
   for (int i=0; i<fs_inode_max_links(sb); i++) {
-    inode->links[i] = (uint64_t) -1;
+    inode->links[i] = INVALID_BLOCK;
   }
   
   fs_write_blk(sb, inode_blk, (void *) inode);
@@ -852,7 +854,7 @@ int fs_rmdir(struct superblock *sb, const char *dname) {
 
   uint64_t blk = fs_find_blk(sb, dname);
 
-  if (blk == (uint64_t) -1) {
+  if (blk == INVALID_BLOCK) {
     errno = EEXIST;
     return -1;
   }
@@ -895,7 +897,7 @@ char * fs_list_dir(struct superblock *sb, const char *dname) {
 
   uint64_t blk = fs_find_blk(sb, dname);
 
-  if (blk == (uint64_t) -1) {
+  if (blk == INVALID_BLOCK) {
     errno = EEXIST;
     return NULL;
   }
@@ -924,7 +926,7 @@ char * fs_list_dir(struct superblock *sb, const char *dname) {
   int j = 0;
 
   while (j < nodeinfo->size && ++i < max_links) {
-    if (inode->links[i] == (uint64_t) -1) {
+    if (inode->links[i] == INVALID_BLOCK) {
       continue;
     }
 
