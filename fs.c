@@ -329,7 +329,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize) {
     return NULL;
   }
 
-  strcpy(root_info->name, ROOT_DIR_NAME);
+  strcpy((char*)&root_info->name, ROOT_DIR_NAME);
   root_info->size = 0;
   
   if (fs_write_blk(sb, ROOT_INFO_BLK, (void*) root_info) == -1)
@@ -485,205 +485,163 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 
   uint64_t max_links = fs_inode_max_links(sb);
 
+  struct inode *inode = (struct inode*) malloc(sb->blksz);
+  struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
+  
+  uint64_t used_blocks = 0;
+  uint64_t used_child_blocks = 0;
+
+  uint64_t needed_blocks = CEIL(cnt, sb->blksz);
+  uint64_t needed_child_blocks = MAX(CEIL(needed_blocks, max_links) - 1, 0);
+
+  int new_inode = 0;
+
   uint64_t block = fs_find_blk(sb, fname);
 
+  // If file already exists
   if (block != (uint64_t) -1) {
-    struct inode *inode = (struct inode*) malloc(sb->blksz);
-
     fs_read_blk(sb, block, (void*) inode);
 
     if (inode->mode != IMREG) {
       free(inode);
+      free(nodeinfo);
       errno = EISDIR;
       return -1;
     }
 
-    struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
-
     fs_read_blk(sb, inode->meta, (void*) nodeinfo);
 
-    if (cnt > nodeinfo->size) {
-      uint64_t extra_nblocks = CEIL((cnt - nodeinfo->size), sb->blksz);
-      uint64_t extra_child_nblocks = MAX(CEIL(extra_nblocks, max_links) - 1, 0);
+    used_blocks = CEIL(nodeinfo->size, sb->blksz);
+    used_child_blocks = MAX(CEIL(used_blocks, max_links) - 1, 0);
+  }
 
-      if (sb->freeblks < extra_nblocks + extra_child_nblocks) {
-        free(inode);
-        free(nodeinfo);
-        errno = ENOSPC;
-        return -1;
-      }
-    }
+  uint64_t real_needed_blocks = needed_blocks > used_blocks ? needed_blocks - used_blocks : 0;
+  uint64_t real_needed_child_blocks = needed_child_blocks > used_child_blocks ? needed_child_blocks - used_child_blocks : 0;
 
-    nodeinfo->size = cnt;
-
-    fs_write_blk(sb, inode->meta, (void*) nodeinfo);
-
-    free(nodeinfo);
-
-    struct inode *aux_inode = (struct inode*) malloc(sb->blksz);
-    memcpy(aux_inode, inode, sb->blksz);
-
-    uint64_t aux_block = block;
-
-    uint64_t data_nblocks = CEIL(cnt, sb->blksz);
-
-    int new_inode = 0;
-
-    for (int j=0; j<data_nblocks; j++) {
-      int i = j % max_links;
-
-      if (i == 0 && j != 0) {
-        if (aux_inode->next != 0) {
-          fs_write_blk(sb, aux_block, (void*) aux_inode);
-          
-          aux_block = aux_inode->next;
-
-          fs_read_blk(sb, aux_inode->next, (void*) aux_inode);
-        } else {
-          uint64_t next_block = fs_get_block(sb);
-          aux_inode->next = next_block;
-
-          fs_write_blk(sb, aux_block, (void*) aux_inode);
-          
-          aux_inode->mode = IMCHILD;
-          aux_inode->meta = aux_block;
-          aux_inode->parent = block;
-          aux_inode->next = 0;
-
-          aux_block = next_block;
-
-          new_inode = 1;          
-        }
-      }
-      
-      if (aux_inode->links[i] == (uint64_t) -1 || new_inode) {
-        aux_inode->links[i] = fs_get_block(sb);
-      }
-
-      uint64_t n = (j < data_nblocks - 1) ? sb->blksz : cnt - j * sb->blksz;
-      fs_write_blk_sz(sb, aux_inode->links[i], (void*)(buf + j * sb->blksz), n);
-    }
-
-    for (int i=(data_nblocks % max_links); i<max_links; i++) {
-      // Cleaning remaining allocated link blocks
-      if (aux_inode->links[i] != (uint64_t) -1 && !new_inode) {
-        fs_put_block(sb, aux_inode->links[i]);
-      }
-      aux_inode->links[i] = (uint64_t) -1;
-    }
-
-    fs_write_blk(sb, aux_block, (void*) aux_inode);
-
-    // Cleaning remaining allocated child blocks
-    while (aux_inode->next != 0) {
-      uint64_t next_block = aux_inode->next;
-
-      aux_inode->next = 0;
-      fs_write_blk(sb, aux_block, (void*) aux_inode);
-
-      aux_block = next_block;
-      fs_read_blk(sb, aux_block, (void*) aux_inode);
-
-      for (int i=0; i<max_links; i++) {
-        if (aux_inode->links[i] != (uint64_t) -1) {
-          fs_put_block(sb, aux_inode->links[i]);
-        }
-      }
-      
-      fs_put_block(sb, aux_block);
-    }
-
+  if (real_needed_blocks + real_needed_child_blocks > sb->freeblks) {
     free(inode);
-    free(aux_inode);
-
-    return 0;
-  }
-
-  char * basedir = fs_get_basedir(fname);
-
-  uint64_t parent_block = fs_find_blk(sb, basedir);
-
-  free(basedir);
-
-  if (parent_block == (uint64_t) -1) {
-    errno = ENOTDIR;
-    return -1;
-  }
-
-  uint64_t data_nblocks = CEIL(cnt, sb->blksz);
-  uint64_t child_nblocks = MAX(CEIL(data_nblocks, max_links) - 1, 0);
-
-  if (sb->freeblks < data_nblocks + child_nblocks) {
+    free(nodeinfo);
     errno = ENOSPC;
     return -1;
   }
 
-  char *basename = fs_get_basename(fname);
+  // If block not exists
+  if (block == (uint64_t) -1) {
+    char *basedir = fs_get_basedir(fname);
 
-  if (strlen(basename) > fs_nodeinfo_max_name_size(sb)) {
+    uint64_t parent_block = fs_find_blk(sb, basedir);
+
+    free(basedir);
+
+    if (parent_block == (uint64_t) -1) {
+      free(inode);
+      free(nodeinfo);
+      errno = ENOTDIR;
+      return -1;
+    }
+    
+    char *basename = fs_get_basename(fname);
+
+    if (strlen(basename) > fs_nodeinfo_max_name_size(sb)) {
+      free(basename);
+      free(inode);
+      free(nodeinfo);
+      errno = ENAMETOOLONG;
+      return -1;
+    }
+
+    block = fs_get_block(sb);
+
+    if (fs_link_blk(sb, parent_block, block) == -1) {
+      free(basename);
+      free(inode);
+      free(nodeinfo);
+      fs_put_block(sb, block);
+      return -1;
+    }
+
+    inode->mode = IMREG;
+    inode->parent = parent_block;
+    inode->next = 0;
+    inode->meta = fs_get_block(sb);
+
+    strcpy((char*)&nodeinfo->name, basename);
+
     free(basename);
-    errno = ENAMETOOLONG;
-    return -1;
+
+    new_inode = 1;
   }
-
-  block = fs_get_block(sb);
-
-  if (fs_link_blk(sb, parent_block, block) == -1) {
-    free(basename);
-    fs_put_block(sb, block);
-    return -1;
-  }
-
-  uint64_t meta_block = fs_get_block(sb);
-
-  struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
 
   nodeinfo->size = cnt;
-  strcpy(nodeinfo->name, basename);
-
-  free(basename);
-
-  fs_write_blk(sb, meta_block, (void*) nodeinfo);
-
+  fs_write_blk(sb, inode->meta, (void*) nodeinfo);
   free(nodeinfo);
-  
-  struct inode *inode = (struct inode*) malloc(sb->blksz);
-  inode->mode = IMREG;
-  inode->parent = parent_block;
-  inode->meta = meta_block;
-  inode->next = 0;
 
   uint64_t base_block = block;
 
-  for (int j=0; j<data_nblocks; j++) {
+  for (int j=0; j<needed_blocks; j++) {
     int i = j % max_links;
 
     if (i == 0 && j != 0) {
-      uint64_t next_block = fs_get_block(sb);
+      // If inode already has a child
+      if (inode->next != 0) {
+        fs_write_blk(sb, block, (void*) inode);
+        block = inode->next;
+        fs_read_blk(sb, block, (void*) inode);
+      } else {
+        uint64_t next_block = fs_get_block(sb);
 
-      inode->next = next_block;
+        inode->next = next_block;
 
-      fs_write_blk(sb, block, (void*) inode);
+        fs_write_blk(sb, block, (void*) inode);
 
-      inode->mode = IMCHILD;
-      inode->parent = base_block;
-      inode->meta = block;
-      inode->next = 0;
+        inode->mode = IMCHILD;
+        inode->parent = base_block;
+        inode->meta = block;
+        inode->next = 0;
 
-      block = next_block;
+        block = next_block;
+
+        new_inode = 1;
+      }
     }
 
-    inode->links[i] = fs_get_block(sb);
+    if (inode->links[i] == (uint64_t) -1 || new_inode) {
+      inode->links[i] = fs_get_block(sb);
+    }
 
-    uint64_t n = (j < data_nblocks - 1) ? sb->blksz : cnt - j * sb->blksz;
+    uint64_t n = (j < needed_blocks - 1) ? sb->blksz : cnt - j * sb->blksz;
     fs_write_blk_sz(sb, inode->links[i], (void*)(buf + j * sb->blksz), n);
   }
 
-  for (int i=(data_nblocks % max_links); i<max_links; i++) {
+  for (int i=(needed_blocks % max_links); i<max_links; i++) {
+    // Cleaning remaining allocated link blocks
+    if (!new_inode && inode->links[i] != (uint64_t) -1) {
+      fs_put_block(sb, inode->links[i]);
+    }
+
     inode->links[i] = (uint64_t) -1;
   }
 
   fs_write_blk(sb, block, (void*)inode);
+
+  // Cleaning remaining allocated child blocks
+  while (inode->next != 0) {
+    uint64_t next_block = inode->next;
+
+    inode->next = 0;
+    fs_write_blk(sb, block, (void*) inode);
+
+    block = next_block;
+    fs_read_blk(sb, block, (void*) inode);
+
+    for (int i=0; i<max_links; i++) {
+      if (inode->links[i] != (uint64_t) -1) {
+        fs_put_block(sb, inode->links[i]);
+      }
+    }
+    
+    fs_put_block(sb, block);
+  }
 
   free(inode);
 
@@ -861,7 +819,7 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
 
   struct nodeinfo *nodeinfo = (struct nodeinfo*) malloc(sb->blksz);
   nodeinfo->size = 0;
-  strcpy(nodeinfo->name, name);
+  strcpy((char*)&nodeinfo->name, name);
 
   free(name);
 
